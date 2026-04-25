@@ -1013,6 +1013,11 @@
         formData.append('video', file, file.name);
         formData.append('segments', JSON.stringify(segments));
 
+        // Send crop info if active
+        if (cropActive && crop && crop.w > 0.01 && crop.h > 0.01) {
+          formData.append('crop', JSON.stringify(crop));
+        }
+
         exportText.textContent = `Upload et decoupe en cours...`;
         exportFill.style.width = '30%';
 

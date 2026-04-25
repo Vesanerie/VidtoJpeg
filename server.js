@@ -210,12 +210,51 @@ async function handleCut(req, res) {
   try { segs = JSON.parse(segPart.data.toString()); } catch { return sendJson(res, 400, { error: 'Invalid segments JSON' }); }
   if (!Array.isArray(segs) || !segs.length) return sendJson(res, 400, { error: 'No segments' });
 
+  // Parse optional crop data (normalized 0-1 values: x, y, w, h)
+  const cropPart = parts.find(p => p.name === 'crop');
+  let cropInfo = null;
+  if (cropPart) {
+    try { cropInfo = JSON.parse(cropPart.data.toString()); } catch { /* ignore invalid crop */ }
+  }
+
   const id = crypto.randomBytes(6).toString('hex');
   const inputPath = path.join(TMP_DIR, id + '_input.mp4');
   fs.writeFileSync(inputPath, filePart.data);
 
   const baseName = (filePart.filename || 'video').replace(/\.[^.]+$/, '');
   const outputFiles = [];
+
+  // If crop is requested, probe video dimensions to compute pixel values
+  let cropFilter = null;
+  if (cropInfo && cropInfo.w > 0.01 && cropInfo.h > 0.01) {
+    try {
+      const dims = await new Promise((resolve, reject) => {
+        const p = spawn('ffprobe', ['-v', 'error', '-select_streams', 'v:0',
+          '-show_entries', 'stream=width,height', '-of', 'json', inputPath]);
+        let out = '';
+        p.stdout.on('data', d => out += d);
+        p.on('close', code => {
+          if (code !== 0) return reject(new Error('ffprobe failed'));
+          try {
+            const info = JSON.parse(out);
+            const s = info.streams[0];
+            resolve({ w: s.width, h: s.height });
+          } catch (e) { reject(e); }
+        });
+      });
+      const cw = Math.round(cropInfo.w * dims.w);
+      const ch = Math.round(cropInfo.h * dims.h);
+      const cx = Math.round(cropInfo.x * dims.w);
+      const cy = Math.round(cropInfo.y * dims.h);
+      // Ensure even dimensions for H.264
+      const ew = cw % 2 === 0 ? cw : cw - 1;
+      const eh = ch % 2 === 0 ? ch : ch - 1;
+      cropFilter = `crop=${ew}:${eh}:${cx}:${cy}`;
+      console.log('[cut] crop filter:', cropFilter);
+    } catch (e) {
+      console.warn('[cut] Could not probe video for crop, skipping crop:', e.message);
+    }
+  }
 
   try {
     for (let i = 0; i < segs.length; i++) {
@@ -230,12 +269,15 @@ async function handleCut(req, res) {
           '-i', inputPath,
           '-ss', String(seg.start),
           '-to', String(seg.end),
+        ];
+        if (cropFilter) args.push('-vf', cropFilter);
+        args.push(
           '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
           '-c:a', 'aac', '-b:a', '192k',
           '-movflags', '+faststart',
           '-avoid_negative_ts', 'make_zero',
           outPath,
-        ];
+        );
         console.log('[cut]', `segment ${i + 1}/${segs.length}`, `${seg.start.toFixed(2)}s → ${seg.end.toFixed(2)}s`);
         const p = spawn('ffmpeg', args);
         let err = '';

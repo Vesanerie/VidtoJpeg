@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VidToJpeg — Extracteur de frames</title>
+  <title>VidToJpeg — Extracteur de frames & Assembleur video</title>
   <link rel="icon" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -177,6 +177,10 @@
     .frame-card { position: relative; border-radius: 8px; overflow: hidden; cursor: pointer; background: #1a1a1a; border: 2px solid transparent; transition: border-color .15s; }
     .frame-card.selected { border-color: #7c6aef; }
     .frame-card.blurry { opacity: .5; }
+    .frame-card.empty { opacity: .35; }
+    .frame-card .fc-empty-badge { position: absolute; top: 4px; left: 4px; font-size: 9px; padding: 2px 5px; border-radius: 4px; background: rgba(255,165,0,.8); color: #fff; }
+    .btn-smart-sort { background: linear-gradient(135deg, #7c6aef, #e55); border: none; color: #fff; font-weight: 600; }
+    .btn-smart-sort:hover { opacity: .85; }
     .frame-card img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }
     .frame-card .fc-badge { position: absolute; top: 4px; right: 4px; font-size: 10px; padding: 2px 5px; border-radius: 4px; background: rgba(0,0,0,.7); color: #aaa; }
     .frame-card .fc-blur-badge { position: absolute; top: 4px; left: 4px; font-size: 9px; padding: 2px 5px; border-radius: 4px; background: rgba(229,85,85,.8); color: #fff; }
@@ -202,13 +206,110 @@
     /* ---- Keyboard hint ---- */
     .kb-hint { position: fixed; bottom: 16px; right: 16px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; padding: 10px 14px; font-size: 11px; color: #666; z-index: 50; line-height: 1.6; }
     .kb-hint kbd { background: #0f0f0f; border: 1px solid #333; border-radius: 3px; padding: 1px 5px; font-size: 10px; color: #aaa; }
+
+    /* ---- Mode switcher ---- */
+    .mode-switch { display: flex; gap: 0; margin-top: 20px; border: 1px solid #2a2a2a; border-radius: 10px; overflow: hidden; }
+    .mode-switch button { flex: 1; padding: 10px 20px; border: none; background: #1a1a1a; color: #888; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .mode-switch button.active { background: #7c6aef; color: #fff; }
+    .mode-switch button:hover:not(.active) { color: #e0e0e0; background: #222; }
+
+    /* ---- Seq2Vid ---- */
+    .seq-section { display: none; }
+    .seq-section.visible { display: block; }
+    #seq-drop-zone { margin-top: 28px; min-height: 180px; border: 2px dashed #333; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: border-color .2s, background .2s; padding: 18px; }
+    #seq-drop-zone:hover, #seq-drop-zone.drag-over { border-color: #7c6aef; background: rgba(124,106,239,.05); }
+    #seq-drop-zone.has-files { border-style: solid; border-color: #2a2a2a; background: #1a1a1a; }
+    .seq-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 4px; margin-top: 12px; max-height: 300px; overflow-y: auto; }
+    .seq-thumb { position: relative; border-radius: 6px; overflow: hidden; background: repeating-conic-gradient(#333 0% 25%, #1a1a1a 0% 50%) 50% / 12px 12px; }
+    .seq-thumb img { width: 100%; aspect-ratio: 1; object-fit: contain; display: block; }
+    .seq-thumb .seq-num { position: absolute; bottom: 2px; right: 4px; font-size: 9px; color: #aaa; background: rgba(0,0,0,.7); padding: 1px 4px; border-radius: 3px; }
+    .seq-info { font-size: 12px; color: #888; margin-top: 8px; }
+    .seq-preview-wrap { margin-top: 12px; position: relative; border-radius: 10px; overflow: hidden; display: none; }
+    .seq-preview-wrap.visible { display: block; }
+    .seq-preview-canvas { display: block; max-width: 100%; border-radius: 10px; background: repeating-conic-gradient(#333 0% 25%, #1a1a1a 0% 50%) 50% / 16px 16px; }
+    .seq-playback { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .seq-progress-area { margin-top: 14px; display: none; }
+    .seq-progress-area.visible { display: block; }
   </style>
 </head>
 <body>
 
   <h1>Vid<span>To</span>Jpeg</h1>
-  <p class="subtitle">Glisse une video, recupere les frames.</p>
+  <p class="subtitle">Glisse une video, recupere les frames — ou assemble des images en video.</p>
 
+  <!-- Mode switcher -->
+  <div class="mode-switch main-width" id="app-mode-switch">
+    <button class="active" data-appmode="vid2img">Video → Frames</button>
+    <button data-appmode="img2vid">Frames → Video</button>
+    <button data-appmode="batch">Batch Photos</button>
+  </div>
+
+  <!-- ============ SEQ2VID SECTION ============ -->
+  <div class="seq-section main-width" id="seq-section">
+    <div id="seq-drop-zone">
+      <div class="icon">🖼️</div>
+      <div class="label">Glisse une sequence d'images PNG ici ou clique pour parcourir</div>
+      <div class="seq-info" id="seq-info"></div>
+      <div class="seq-thumbs" id="seq-thumbs"></div>
+    </div>
+    <input type="file" id="seq-file-input" accept="image/png,image/jpeg,image/webp" multiple style="display:none">
+
+    <!-- Preview -->
+    <div class="seq-preview-wrap" id="seq-preview-wrap">
+      <canvas class="seq-preview-canvas" id="seq-preview-canvas"></canvas>
+      <div class="seq-playback">
+        <button class="btn-play" id="seq-btn-play" title="Preview">&#9654;</button>
+        <span class="time-display" id="seq-time-display">0 / 0</span>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="panel visible" id="seq-settings-panel" style="margin-top:18px; display:none;">
+      <div class="panel-label">Reglages video</div>
+      <div class="settings-grid">
+        <div class="s-group">
+          <label>FPS</label>
+          <input type="number" id="seq-fps" min="1" max="120" value="24" step="1">
+        </div>
+        <div class="s-group">
+          <label>Format</label>
+          <select id="seq-format">
+            <option value="webm-alpha">WebM VP9 (alpha)</option>
+            <option value="webm">WebM VP9 (opaque)</option>
+            <option value="mp4">MP4 H.264 (opaque)</option>
+          </select>
+        </div>
+        <div class="s-group sg-full">
+          <label>Ordre des images</label>
+          <select id="seq-sort">
+            <option value="name">Par nom (alphabetique)</option>
+            <option value="natural">Par nom (naturel / numerique)</option>
+            <option value="none">Ordre de selection</option>
+          </select>
+        </div>
+        <div class="s-group sg-full">
+          <label>Options</label>
+          <div class="toggle-row">
+            <input type="checkbox" class="toggle" id="seq-loop" checked>
+            <span class="toggle-label">Boucle (loop)</span>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:14px;">
+        <button id="btn-seq-encode" style="width:100%; padding:14px; border:none; border-radius:12px; background:#7c6aef; color:#fff; font-size:15px; font-weight:600; cursor:pointer;">Generer la video</button>
+      </div>
+      <div class="seq-progress-area" id="seq-progress-area">
+        <div class="pbar-track"><div class="pbar-fill" id="seq-pbar-fill"></div></div>
+        <div class="pbar-info">
+          <span id="seq-p-text">Encodage...</span>
+          <span id="seq-p-pct">0%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ VID2IMG SECTION ============ -->
+  <div id="vid2img-section">
   <!-- Drop zone -->
   <div class="main-width" id="drop-zone">
     <div class="icon">&#127916;</div>
@@ -480,6 +581,7 @@
     <div class="preview-header">
       <h2>Frames extraites</h2>
       <div class="preview-actions">
+        <button class="small-btn btn-smart-sort" id="btn-smart-sort" title="Vire les frames floues, vides et les doublons — garde la meilleure de chaque pose">Tri intelligent</button>
         <button class="small-btn" id="btn-select-all">Tout selectionner</button>
         <button class="small-btn" id="btn-deselect-blur">Exclure floues</button>
         <button class="small-btn" id="btn-contact-sheet">Planche contact</button>
@@ -496,6 +598,58 @@
     <button class="lb-nav lb-next" id="lb-next">&#9654;</button>
     <img id="lb-img" src="">
     <div class="lb-info" id="lb-info"></div>
+  </div>
+
+  </div><!-- /vid2img-section -->
+
+  <!-- ============ BATCH PHOTOS SECTION ============ -->
+  <div class="seq-section main-width" id="batch-section">
+    <div id="batch-drop-zone" style="margin-top:28px;min-height:180px;border:2px dashed #333;border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:border-color .2s,background .2s;padding:18px">
+      <div class="icon" style="font-size:36px;margin-bottom:10px">📸</div>
+      <div class="label" style="font-size:14px;color:#aaa">Glisse des photos ici ou clique pour parcourir</div>
+      <div id="batch-info" style="font-size:12px;color:#888;margin-top:8px"></div>
+      <div id="batch-thumbs" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:4px;margin-top:12px;max-height:300px;overflow-y:auto;width:100%"></div>
+    </div>
+    <input type="file" id="batch-file-input" accept="image/jpeg,image/png,image/webp" multiple style="display:none">
+
+    <div class="panel visible" style="margin-top:18px;display:none" id="batch-settings">
+      <div class="panel-label">Watermark</div>
+      <div class="settings-grid">
+        <div class="s-group">
+          <label>Texte</label>
+          <input type="text" id="batch-wm-text" value="Gesturo">
+        </div>
+        <div class="s-group">
+          <label>Position</label>
+          <select id="batch-wm-pos">
+            <option value="br">Bas droite</option>
+            <option value="bl">Bas gauche</option>
+            <option value="tr">Haut droite</option>
+            <option value="tl">Haut gauche</option>
+            <option value="center">Centre</option>
+          </select>
+        </div>
+        <div class="s-group">
+          <label>Qualite JPEG</label>
+          <input type="number" id="batch-quality" value="92" min="1" max="100">
+        </div>
+        <div class="s-group sg-full">
+          <label>Protection</label>
+          <div class="toggle-row">
+            <input type="checkbox" class="toggle" id="batch-antitheft">
+            <span class="toggle-label">Protection anti-vol (grille + gros watermark central)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:18px;display:none" id="batch-actions">
+      <button id="btn-batch-process" style="width:100%;padding:14px;border:none;border-radius:12px;background:#7c6aef;color:#fff;font-size:15px;font-weight:600;cursor:pointer">Appliquer le watermark</button>
+      <div class="progress-area" id="batch-progress" style="margin-top:12px">
+        <div class="pbar-track"><div class="pbar-fill" id="batch-pbar-fill"></div></div>
+        <div class="pbar-info"><span id="batch-p-text">...</span><span id="batch-p-pct">0%</span></div>
+      </div>
+    </div>
   </div>
 
   <!-- Keyboard hints -->
@@ -1311,6 +1465,29 @@
       return (sum2 / count) - mean * mean; // variance
     }
 
+    function calcEdgeDensity(ctx, w, h) {
+      // Edge density via Sobel — low = empty frame (no subject)
+      const small = 100;
+      const ratio = small / Math.max(w, h);
+      const sw = Math.round(w * ratio), sh = Math.round(h * ratio);
+      sharpenCanvas.width = sw; sharpenCanvas.height = sh;
+      sharpenCtx.drawImage(ctx.canvas, 0, 0, sw, sh);
+      const img = sharpenCtx.getImageData(0, 0, sw, sh);
+      const d = img.data;
+      const gray = new Float32Array(sw * sh);
+      for (let i = 0; i < sw * sh; i++) gray[i] = d[i*4] * .299 + d[i*4+1] * .587 + d[i*4+2] * .114;
+      let edgeCount = 0;
+      const threshold = 30;
+      for (let y = 1; y < sh-1; y++) {
+        for (let x = 1; x < sw-1; x++) {
+          const gx = -gray[(y-1)*sw+x-1] + gray[(y-1)*sw+x+1] - 2*gray[y*sw+x-1] + 2*gray[y*sw+x+1] - gray[(y+1)*sw+x-1] + gray[(y+1)*sw+x+1];
+          const gy = -gray[(y-1)*sw+x-1] - 2*gray[(y-1)*sw+x] - gray[(y-1)*sw+x+1] + gray[(y+1)*sw+x-1] + 2*gray[(y+1)*sw+x] + gray[(y+1)*sw+x+1];
+          if (Math.sqrt(gx*gx + gy*gy) > threshold) edgeCount++;
+        }
+      }
+      return edgeCount / ((sw-2) * (sh-2)) * 100;
+    }
+
     function pixelDiff(ctx1, w1, h1, ctx2, w2, h2) {
       // Quick comparison at small size
       const s = 50;
@@ -1485,6 +1662,8 @@
           // Blur detection (before sharpen so it reflects actual source quality)
           let blurScore = 0;
           if (settings.blurDetect) blurScore = calcBlurScore(workCtx, finalW, finalH);
+          // Edge density (always computed for smart sort)
+          const edgeDensity = calcEdgeDensity(workCtx, finalW, finalH);
 
           // Sharpen
           if (settings.sharpen > 0) applySharpen(workCtx, finalW, finalH, settings.sharpen);
@@ -1527,7 +1706,7 @@
           const blobUrl = URL.createObjectURL(blob);
           extractedFrames.push({
             blob, url: blobUrl, name: fileName, time: times[i].t,
-            segIndex: times[i].segIndex, blurScore, selected: true
+            segIndex: times[i].segIndex, blurScore, edgeDensity, selected: true
           });
 
           // Progress
@@ -1618,11 +1797,14 @@
 
       extractedFrames.forEach((frame, i) => {
         const card = document.createElement('div');
-        card.className = 'frame-card' + (frame.selected ? ' selected' : '') + (frame.blurScore < blurThreshold && $('t-blur-detect').checked ? ' blurry' : '');
+        const isBlurry = frame.blurScore < blurThreshold && $('t-blur-detect').checked;
+        const isEmpty = frame.edgeDensity !== undefined && frame.edgeDensity < 2;
+        card.className = 'frame-card' + (frame.selected ? ' selected' : '') + (isBlurry ? ' blurry' : '') + (isEmpty && !isBlurry ? ' empty' : '');
         card.innerHTML = `
           <img src="${frame.url}" loading="lazy">
           <span class="fc-badge">#${i+1}</span>
-          ${frame.blurScore < blurThreshold && $('t-blur-detect').checked ? '<span class="fc-blur-badge">Flou</span>' : ''}
+          ${isBlurry ? '<span class="fc-blur-badge">Flou</span>' : ''}
+          ${isEmpty && !isBlurry ? '<span class="fc-empty-badge">Vide</span>' : ''}
           <span class="fc-check">&#10003;</span>
         `;
         card.addEventListener('click', (e) => {
@@ -1646,6 +1828,73 @@
       const threshold = 200;
       extractedFrames.forEach(f => { if (f.blurScore < threshold) f.selected = false; });
       renderPreview();
+    });
+
+    // Smart sort — deselect blurry + empty + deduplicate (keep sharpest per group)
+    $('btn-smart-sort').addEventListener('click', () => {
+      const EMPTY_THRESHOLD = 2;    // edge density % below = empty frame
+      let nBlur = 0, nEmpty = 0, nDupes = 0;
+
+      // Pass 1: deselect blurry and empty
+      const blurValues = extractedFrames.filter(f => f.blurScore > 0).map(f => f.blurScore);
+      // Dynamic blur threshold: bottom 20% of non-zero blur scores, or 200 if no blur data
+      let blurThreshold = 200;
+      if (blurValues.length > 0) {
+        blurValues.sort((a, b) => a - b);
+        blurThreshold = blurValues[Math.floor(blurValues.length * 0.2)] || 200;
+      }
+
+      extractedFrames.forEach(f => {
+        if (f.edgeDensity !== undefined && f.edgeDensity < EMPTY_THRESHOLD) {
+          f.selected = false; nEmpty++;
+        } else if (f.blurScore > 0 && f.blurScore < blurThreshold) {
+          f.selected = false; nBlur++;
+        }
+      });
+
+      // Pass 2: deduplicate similar consecutive frames (keep sharpest per group)
+      const remaining = extractedFrames.filter(f => f.selected);
+      if (remaining.length > 1) {
+        let groupStart = 0;
+        for (let i = 1; i <= remaining.length; i++) {
+          // Check if this frame is similar to the group start (using pixel diff via time proximity + edge similarity)
+          let isSimilar = false;
+          if (i < remaining.length) {
+            const a = remaining[groupStart], b = remaining[i];
+            // Frames within 2s of each other with similar edge density = same pose
+            const timeDiff = Math.abs(b.time - a.time);
+            const edgeDiff = (a.edgeDensity !== undefined && b.edgeDensity !== undefined)
+              ? Math.abs(a.edgeDensity - b.edgeDensity) / Math.max(a.edgeDensity, b.edgeDensity, 1)
+              : 1;
+            isSimilar = timeDiff < 2 && edgeDiff < 0.3;
+          }
+
+          if (!isSimilar) {
+            // End of group — keep the sharpest, deselect the rest
+            const group = remaining.slice(groupStart, i);
+            if (group.length > 1) {
+              // Find best by blur score (highest = sharpest), fallback to edge density
+              let bestIdx = 0, bestScore = -1;
+              group.forEach((f, j) => {
+                const score = f.blurScore > 0 ? f.blurScore : (f.edgeDensity || 0);
+                if (score > bestScore) { bestScore = score; bestIdx = j; }
+              });
+              group.forEach((f, j) => { if (j !== bestIdx) { f.selected = false; nDupes++; } });
+            }
+            groupStart = i;
+          }
+        }
+      }
+
+      const kept = extractedFrames.filter(f => f.selected).length;
+      renderPreview();
+
+      // Show result toast
+      const toast = document.createElement('div');
+      toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid #7c6aef;border-radius:10px;padding:12px 20px;font-size:13px;color:#e0e0e0;z-index:200;transition:opacity .3s';
+      toast.innerHTML = `<strong>${kept}</strong> frames gardees — <span style="color:#e55">${nBlur} floues</span> · <span style="color:orange">${nEmpty} vides</span> · <span style="color:#888">${nDupes} doublons</span> exclus`;
+      document.body.appendChild(toast);
+      setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 4000);
     });
 
     // Download selection
@@ -1679,7 +1928,7 @@
       lbIndex = Math.max(0, Math.min(lbIndex, extractedFrames.length - 1));
       const f = extractedFrames[lbIndex];
       lbImg.src = f.url;
-      lbInfo.textContent = `${f.name}  —  ${fmtTime(f.time)}${f.blurScore ? '  —  Blur: ' + f.blurScore.toFixed(0) : ''}`;
+      lbInfo.textContent = `${f.name}  —  ${fmtTime(f.time)}${f.blurScore ? '  —  Blur: ' + f.blurScore.toFixed(0) : ''}${f.edgeDensity !== undefined ? '  —  Edges: ' + f.edgeDensity.toFixed(1) + '%' : ''}`;
     }
     lightbox.addEventListener('click', e => { if (e.target === lightbox) lightbox.classList.remove('open'); });
     $('lb-prev').addEventListener('click', e => { e.stopPropagation(); lbIndex = (lbIndex - 1 + extractedFrames.length) % extractedFrames.length; updateLightbox(); });
@@ -1722,6 +1971,385 @@
         if (seg && cur > seg.start) { seg.end = cur; renderSegments(); }
       }
       else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); cutAtCursor(); }
+    });
+
+    // ===== APP MODE SWITCH =====
+    const vid2imgSection = $('vid2img-section');
+    const seqSection = $('seq-section');
+    const batchSection = $('batch-section');
+    document.querySelectorAll('#app-mode-switch button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#app-mode-switch button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const mode = btn.dataset.appmode;
+        vid2imgSection.style.display = mode === 'vid2img' ? '' : 'none';
+        seqSection.classList.toggle('visible', mode === 'img2vid');
+        batchSection.classList.toggle('visible', mode === 'batch');
+      });
+    });
+
+    // ===== SEQ2VID (Images → Video) =====
+    const seqDropZone = $('seq-drop-zone');
+    const seqFileInput = $('seq-file-input');
+    const seqThumbs = $('seq-thumbs');
+    const seqInfoEl = $('seq-info');
+    const seqPreviewWrap = $('seq-preview-wrap');
+    const seqPreviewCanvas = $('seq-preview-canvas');
+    const seqPreviewCtx = seqPreviewCanvas.getContext('2d');
+    const seqSettingsPanel = $('seq-settings-panel');
+
+    let seqImages = []; // [{ file, name, img (HTMLImageElement), url }]
+    let seqPlaying = false;
+    let seqPlayRAF = null;
+    let seqPlayIdx = 0;
+
+    seqDropZone.addEventListener('click', e => {
+      if (e.target.closest('.seq-thumb')) return;
+      seqFileInput.click();
+    });
+    seqDropZone.addEventListener('dragover', e => { e.preventDefault(); seqDropZone.classList.add('drag-over'); });
+    seqDropZone.addEventListener('dragleave', () => seqDropZone.classList.remove('drag-over'));
+    seqDropZone.addEventListener('drop', e => {
+      e.preventDefault(); seqDropZone.classList.remove('drag-over');
+      addSeqFiles(e.dataTransfer.files);
+    });
+    seqFileInput.addEventListener('change', () => { addSeqFiles(seqFileInput.files); seqFileInput.value = ''; });
+
+    function naturalSort(a, b) {
+      return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    }
+
+    async function addSeqFiles(files) {
+      const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+      if (!imageFiles.length) return;
+
+      for (const f of imageFiles) {
+        const url = URL.createObjectURL(f);
+        const img = new Image();
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+        seqImages.push({ file: f, name: f.name, img, url });
+      }
+
+      sortSeqImages();
+      renderSeqThumbs();
+      seqDropZone.classList.add('has-files');
+      seqSettingsPanel.style.display = 'block';
+
+      // Show first frame on preview canvas
+      if (seqImages.length > 0) {
+        const first = seqImages[0].img;
+        seqPreviewCanvas.width = first.naturalWidth;
+        seqPreviewCanvas.height = first.naturalHeight;
+        seqPreviewCtx.clearRect(0, 0, seqPreviewCanvas.width, seqPreviewCanvas.height);
+        seqPreviewCtx.drawImage(first, 0, 0);
+        seqPreviewWrap.classList.add('visible');
+        $('seq-time-display').textContent = `1 / ${seqImages.length}`;
+      }
+    }
+
+    function sortSeqImages() {
+      const mode = $('seq-sort').value;
+      if (mode === 'name') seqImages.sort((a, b) => a.name.localeCompare(b.name));
+      else if (mode === 'natural') seqImages.sort((a, b) => naturalSort(a.name, b.name));
+      // 'none' = keep insertion order
+    }
+
+    $('seq-sort').addEventListener('change', () => {
+      sortSeqImages();
+      renderSeqThumbs();
+    });
+
+    function renderSeqThumbs() {
+      seqThumbs.innerHTML = '';
+      seqImages.forEach((item, i) => {
+        const div = document.createElement('div');
+        div.className = 'seq-thumb';
+        div.innerHTML = `<img src="${item.url}"><span class="seq-num">${i + 1}</span>`;
+        seqThumbs.appendChild(div);
+      });
+      seqInfoEl.textContent = `${seqImages.length} images — ${seqImages[0] ? seqImages[0].img.naturalWidth + '×' + seqImages[0].img.naturalHeight : ''}`;
+    }
+
+    // Preview playback
+    $('seq-btn-play').addEventListener('click', () => {
+      if (!seqImages.length) return;
+      if (seqPlaying) {
+        seqPlaying = false;
+        cancelAnimationFrame(seqPlayRAF);
+        $('seq-btn-play').innerHTML = '&#9654;';
+        return;
+      }
+      seqPlaying = true;
+      $('seq-btn-play').innerHTML = '&#9646;&#9646;';
+      seqPlayIdx = 0;
+      const fps = parseInt($('seq-fps').value) || 24;
+      const interval = 1000 / fps;
+      let lastTime = 0;
+
+      function playFrame(ts) {
+        if (!seqPlaying) return;
+        if (ts - lastTime >= interval) {
+          lastTime = ts;
+          const item = seqImages[seqPlayIdx];
+          seqPreviewCtx.clearRect(0, 0, seqPreviewCanvas.width, seqPreviewCanvas.height);
+          seqPreviewCtx.drawImage(item.img, 0, 0);
+          $('seq-time-display').textContent = `${seqPlayIdx + 1} / ${seqImages.length}`;
+          seqPlayIdx++;
+          if (seqPlayIdx >= seqImages.length) {
+            if ($('seq-loop').checked) seqPlayIdx = 0;
+            else { seqPlaying = false; $('seq-btn-play').innerHTML = '&#9654;'; return; }
+          }
+        }
+        seqPlayRAF = requestAnimationFrame(playFrame);
+      }
+      seqPlayRAF = requestAnimationFrame(playFrame);
+    });
+
+    // ===== ENCODE VIDEO FROM SEQUENCE =====
+    $('btn-seq-encode').addEventListener('click', async () => {
+      if (!seqImages.length) return;
+
+      const fps = parseInt($('seq-fps').value) || 24;
+      const format = $('seq-format').value;
+      const first = seqImages[0].img;
+      const w = first.naturalWidth;
+      const h = first.naturalHeight;
+
+      const progressArea = $('seq-progress-area');
+      const pFill = $('seq-pbar-fill');
+      const pText2 = $('seq-p-text');
+      const pPct2 = $('seq-p-pct');
+      progressArea.classList.add('visible');
+      pFill.style.width = '0%';
+      pText2.textContent = 'Preparation...';
+      pPct2.textContent = '0%';
+
+      // Create offscreen canvas for encoding
+      const encCanvas = document.createElement('canvas');
+      encCanvas.width = w;
+      encCanvas.height = h;
+      const encCtx = encCanvas.getContext('2d');
+
+      // Determine MIME and codec
+      let mimeType, fileExt;
+      if (format === 'webm-alpha') {
+        mimeType = 'video/webm; codecs=vp9';
+        fileExt = 'webm';
+      } else if (format === 'webm') {
+        mimeType = 'video/webm; codecs=vp9';
+        fileExt = 'webm';
+      } else {
+        // MP4 fallback — browsers usually support webm via MediaRecorder, not mp4
+        // Try webm and we'll label it as mp4 only if supported
+        mimeType = 'video/webm; codecs=vp9';
+        fileExt = 'webm';
+        if (MediaRecorder.isTypeSupported('video/mp4; codecs=avc1')) {
+          mimeType = 'video/mp4; codecs=avc1';
+          fileExt = 'mp4';
+        }
+      }
+
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        // Fallback
+        mimeType = 'video/webm';
+        fileExt = 'webm';
+      }
+
+      const stream = encCanvas.captureStream(0); // 0 = manual frame control
+      const track = stream.getVideoTracks()[0];
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 10_000_000,
+      });
+
+      const chunks = [];
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+      const encodingDone = new Promise(resolve => {
+        recorder.onstop = () => resolve();
+      });
+
+      recorder.start();
+
+      // Draw each frame and capture
+      const frameDuration = 1000 / fps;
+
+      for (let i = 0; i < seqImages.length; i++) {
+        const item = seqImages[i];
+
+        if (format === 'webm' || format === 'mp4') {
+          // Opaque: fill background white
+          encCtx.fillStyle = '#ffffff';
+          encCtx.fillRect(0, 0, w, h);
+          encCtx.drawImage(item.img, 0, 0);
+        } else {
+          // Alpha: clear then draw
+          encCtx.clearRect(0, 0, w, h);
+          encCtx.drawImage(item.img, 0, 0);
+        }
+
+        // Request frame capture
+        if (track.requestFrame) {
+          track.requestFrame();
+        }
+
+        // Wait for frame duration to ensure proper timing
+        await new Promise(r => setTimeout(r, frameDuration));
+
+        const pct = Math.round(((i + 1) / seqImages.length) * 100);
+        pFill.style.width = pct + '%';
+        pPct2.textContent = pct + '%';
+        pText2.textContent = `Encodage frame ${i + 1} / ${seqImages.length}`;
+      }
+
+      recorder.stop();
+      await encodingDone;
+
+      // Download
+      const blob = new Blob(chunks, { type: mimeType });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `sequence_${seqImages.length}f_${fps}fps.${fileExt}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+
+      pFill.style.width = '100%';
+      pText2.textContent = `Termine ! ${(blob.size / 1048576).toFixed(1)} Mo`;
+      pPct2.textContent = '100%';
+      setTimeout(() => progressArea.classList.remove('visible'), 4000);
+    });
+
+    // ===== BATCH PHOTOS (Watermark) =====
+    const batchDropZone = $('batch-drop-zone');
+    const batchFileInput = $('batch-file-input');
+    const batchThumbs = $('batch-thumbs');
+    const batchInfoEl = $('batch-info');
+    const batchSettings = $('batch-settings');
+    const batchActions = $('batch-actions');
+    let batchFiles = [];
+
+    batchDropZone.addEventListener('click', () => batchFileInput.click());
+    batchDropZone.addEventListener('dragover', e => { e.preventDefault(); batchDropZone.style.borderColor = '#7c6aef'; batchDropZone.style.background = 'rgba(124,106,239,.05)'; });
+    batchDropZone.addEventListener('dragleave', () => { batchDropZone.style.borderColor = '#333'; batchDropZone.style.background = ''; });
+    batchDropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      batchDropZone.style.borderColor = '#333'; batchDropZone.style.background = '';
+      const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+      if (files.length) addBatchFiles(files);
+    });
+    batchFileInput.addEventListener('change', () => {
+      const files = [...batchFileInput.files].filter(f => f.type.startsWith('image/'));
+      if (files.length) addBatchFiles(files);
+      batchFileInput.value = '';
+    });
+
+    function addBatchFiles(files) {
+      batchFiles = files;
+      batchInfoEl.textContent = `${files.length} photo${files.length > 1 ? 's' : ''} chargee${files.length > 1 ? 's' : ''}`;
+      batchThumbs.innerHTML = '';
+      files.slice(0, 50).forEach((f, i) => {
+        const url = URL.createObjectURL(f);
+        const div = document.createElement('div');
+        div.style.cssText = 'position:relative;border-radius:6px;overflow:hidden;background:#1a1a1a';
+        div.innerHTML = `<img src="${url}" style="width:100%;aspect-ratio:1;object-fit:cover;display:block"><span style="position:absolute;bottom:2px;right:4px;font-size:9px;color:#aaa;background:rgba(0,0,0,.7);padding:1px 4px;border-radius:3px">${i + 1}</span>`;
+        batchThumbs.appendChild(div);
+      });
+      batchDropZone.style.borderStyle = 'solid';
+      batchDropZone.style.borderColor = '#2a2a2a';
+      batchDropZone.style.background = '#1a1a1a';
+      batchSettings.style.display = 'block';
+      batchActions.style.display = 'block';
+    }
+
+    $('btn-batch-process').addEventListener('click', async () => {
+      if (!batchFiles.length) return;
+      const text = $('batch-wm-text').value;
+      const pos = $('batch-wm-pos').value;
+      const size = 48;
+      const quality = parseInt($('batch-quality').value) / 100;
+      const btn = $('btn-batch-process');
+      btn.disabled = true; btn.textContent = 'Traitement...';
+      const progressArea = $('batch-progress');
+      progressArea.classList.add('visible');
+
+      // Load Syne font for watermark
+      try { await document.fonts.load(`700 ${size}px Syne`); } catch(e) {}
+
+      const zip = new JSZip();
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      for (let i = 0; i < batchFiles.length; i++) {
+        const file = batchFiles[i];
+        const img = new window.Image();
+        const url = URL.createObjectURL(file);
+        await new Promise(r => { img.onload = r; img.src = url; });
+
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+
+        if (text) {
+          const antitheft = $('batch-antitheft').checked;
+
+          if (antitheft) {
+            // Big center watermark
+            applyWatermark(ctx, img.width, img.height, text, 'center', Math.round(img.width * 0.08));
+            // Diagonal grid
+            ctx.save();
+            ctx.globalAlpha = 0.15;
+            ctx.font = `800 ${Math.round(img.width * 0.04)}px 'Syne', -apple-system, sans-serif`;
+            ctx.fillStyle = '#fff';
+            ctx.translate(img.width / 2, img.height / 2);
+            ctx.rotate(-0.4);
+            for (let row = -3; row <= 3; row++) {
+              for (let col = -3; col <= 3; col++) {
+                if (row === 0 && col === 0) continue;
+                ctx.fillText(text, col * img.width * 0.35, row * img.height * 0.25);
+              }
+            }
+            ctx.restore();
+          }
+
+          // Copyright line — always
+          const today = new Date();
+          const dateStr = today.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+          const copyright = `© ${today.getFullYear()} ${text} — Tous droits reserves — ${dateStr}`;
+          const copyrightSize = Math.round(img.width * 0.014);
+          ctx.save();
+          ctx.font = `800 ${copyrightSize}px 'Syne', -apple-system, sans-serif`;
+          ctx.fillStyle = 'rgba(255,255,255,0.6)';
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = 2;
+          const cpW = ctx.measureText(copyright).width;
+          const cpX = img.width - cpW - copyrightSize * 0.8;
+          const cpY = img.height - copyrightSize * 0.8;
+          ctx.strokeText(copyright, cpX, cpY);
+          ctx.fillText(copyright, cpX, cpY);
+          ctx.restore();
+        }
+
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
+        const name = file.name.replace(/\.[^.]+$/, '') + '_wm.jpg';
+        zip.file(name, blob);
+
+        URL.revokeObjectURL(url);
+        const pct = Math.round(((i + 1) / batchFiles.length) * 100);
+        $('batch-pbar-fill').style.width = pct + '%';
+        $('batch-p-pct').textContent = pct + '%';
+        $('batch-p-text').textContent = `${i + 1} / ${batchFiles.length}`;
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(zipBlob);
+      a.download = 'photos_watermarked.zip';
+      a.click();
+      URL.revokeObjectURL(a.href);
+
+      btn.disabled = false; btn.textContent = 'Appliquer le watermark';
+      $('batch-p-text').textContent = `Termine ! ${batchFiles.length} photos exportees`;
     });
 
   })();

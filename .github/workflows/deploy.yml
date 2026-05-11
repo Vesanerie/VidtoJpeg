@@ -1,0 +1,25 @@
+name: Deploy to gesturo.fr/vidtojpeg
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: FTP Deploy
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASS }}
+          local-dir: ./
+          server-dir: vidtojpeg/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            server.js
+            node_modules/**

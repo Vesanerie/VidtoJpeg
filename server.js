@@ -428,6 +428,103 @@ function crc32(buf) {
   return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
+// ===== BATCH WATERMARK (server-side, mirrors frontend Batch Photos logic) =====
+// POST /batch { inputDir, outputDir, text?, quality?, maxWidth?, antitheft? }
+// Processes all JPEG/PNG in inputDir, applies watermark, saves to outputDir
+async function handleBatch(req, res) {
+  const body = await readJson(req);
+  const { inputDir, outputDir, text = 'Gesturo', quality = 92, maxWidth = 2000, antitheft = false } = body;
+
+  if (!inputDir || !outputDir) return sendJson(res, 400, { error: 'inputDir and outputDir required' });
+  if (!fs.existsSync(inputDir)) return sendJson(res, 400, { error: `inputDir not found: ${inputDir}` });
+
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  // Collect image files
+  const exts = ['.jpg', '.jpeg', '.png', '.webp', '.tiff', '.tif'];
+  const files = fs.readdirSync(inputDir)
+    .filter(f => exts.includes(path.extname(f).toLowerCase()))
+    .sort();
+
+  if (!files.length) return sendJson(res, 400, { error: 'No image files found in inputDir' });
+
+  const fontPath = path.join(os.homedir(), 'Library/Fonts/Syne-Variable.ttf');
+  const hasSyne = fs.existsSync(fontPath);
+  const font = hasSyne ? fontPath : 'Arial-Bold';
+
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const copyright = `© ${today.getFullYear()} ${text} — Tous droits reserves — ${dateStr}`;
+
+  const results = { processed: 0, errors: [], files: [] };
+
+  for (const file of files) {
+    const inputPath = path.join(inputDir, file);
+    const outName = file.replace(/\.[^.]+$/, '') + '_wm.jpg';
+    const outputPath = path.join(outputDir, outName);
+
+    try {
+      // Get dimensions after resize to calculate font size (1.4% of width, matching frontend)
+      const targetW = maxWidth;
+      const copyrightSize = Math.max(12, Math.round(targetW * 0.014));
+      const pad = Math.round(copyrightSize * 0.8);
+
+      const args = [inputPath, '-resize', `${maxWidth}x${maxWidth}>`, '-strip'];
+
+      // Antitheft: big centered watermark + tiled grid
+      if (antitheft) {
+        const bigSize = Math.round(targetW * 0.08);
+        const tileSize = Math.round(targetW * 0.04);
+        // Center watermark
+        args.push(
+          '-font', font, '-weight', '800',
+          '-pointsize', String(bigSize), '-gravity', 'Center',
+          '-stroke', 'rgba(0,0,0,0.3)', '-strokewidth', '2', '-fill', 'rgba(255,255,255,0.4)',
+          '-annotate', '+0+0', text
+        );
+        // Tiled watermarks (simplified: 4 corners + offsets)
+        for (const [grav, ox, oy] of [['NorthWest','80','80'],['NorthEast','80','80'],['SouthWest','80','80'],['North','0','200'],['South','0','200']]) {
+          args.push(
+            '-pointsize', String(tileSize), '-gravity', grav,
+            '-stroke', 'none', '-fill', 'rgba(255,255,255,0.15)',
+            '-annotate', `+${ox}+${oy}`, text
+          );
+        }
+      }
+
+      // Copyright line — Syne 800, white fill, black stroke for readability
+      args.push(
+        '-font', font, '-weight', '800',
+        '-pointsize', String(copyrightSize), '-gravity', 'SouthEast',
+        '-stroke', 'black', '-strokewidth', '3', '-fill', 'none',
+        '-annotate', `+${pad}+${pad}`, copyright,
+        '-stroke', 'none', '-fill', 'white',
+        '-annotate', `+${pad}+${pad}`, copyright,
+        '-quality', String(quality),
+        outputPath
+      );
+
+      await new Promise((resolve, reject) => {
+        const p = spawn('magick', args);
+        let err = '';
+        p.stderr.on('data', d => err += d);
+        p.on('close', code => {
+          if (code !== 0) reject(new Error(err.slice(-300)));
+          else resolve();
+        });
+      });
+
+      results.processed++;
+      results.files.push(outName);
+    } catch (e) {
+      results.errors.push({ file, error: e.message });
+    }
+  }
+
+  console.log(`[batch] ${results.processed}/${files.length} processed → ${outputDir}`);
+  sendJson(res, 200, results);
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { cors(res); res.writeHead(204); return res.end(); }
 
@@ -439,6 +536,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/download') return handleDownload(req, res);
     if (req.method === 'POST' && req.url === '/download-save') return handleDownloadSave(req, res);
     if (req.method === 'POST' && req.url === '/cut') return handleCut(req, res);
+    if (req.method === 'POST' && req.url === '/batch') return handleBatch(req, res);
 
     // Serve index.html and static files from the script directory
     if (req.method === 'GET') {
